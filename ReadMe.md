@@ -27,5 +27,9 @@ The **EcoFusion** model integrates a **transformer-based denoiser** within a **d
 Sikder, M. F., Ramachandranpillai, R., & Heintz, F. (2023). TransFusion: Generating Long, High Fidelity Time Series using Diffusion Models with Transformers.
 
 ## Author
-
 Tayyaba Tabassum
+
+<img width="1328" height="544" alt="image" src="https://github.com/user-attachments/assets/cfdc250b-82b9-4450-a018-1dc476a65ebb" />
+
+<img width="1264" height="614" alt="image" src="https://github.com/user-attachments/assets/a5759746-73a3-4929-b55a-688e1d34c11d" />
+
