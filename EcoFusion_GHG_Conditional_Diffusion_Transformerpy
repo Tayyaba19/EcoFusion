@@ -1,0 +1,130 @@
+# ==============================================================
+# 🌿 EcoFusion: Conditional Diffusion Transformer for Synthetic GHG Emissions
+# Author: Tayyaba Tabassum
+# Description:
+# A diffusion-transformer hybrid model designed to generate
+# realistic, context-aware, and privacy-preserving synthetic
+# greenhouse gas (GHG) emission time series for sustainability analytics.
+# ==============================================================
+
+# Imports
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
+import numpy as np
+import matplotlib.pyplot as plt
+from tqdm import tqdm
+
+np.random.seed(42)
+timesteps = 2000
+
+temperature = 25 + 5 * np.sin(np.linspace(0, 8*np.pi, timesteps))  # cyclical temp pattern
+production_load = np.clip(70 + 10 * np.sin(np.linspace(0, 4*np.pi, timesteps)) + np.random.randn(timesteps)*3, 60, 90)
+emissions = 0.1 * production_load + 0.05 * temperature + np.random.randn(timesteps)*0.5  # emission relationship
+
+plt.figure(figsize=(10,4))
+plt.plot(emissions, label='CO₂ Emissions (kg/hr)')
+plt.plot(production_load, label='Production Load (%)')
+plt.plot(temperature, label='Temperature (°C)')
+plt.legend(); plt.title("Simulated Real GHG Emission Data"); plt.show()
+
+# Dataset Class
+class EmissionsDataset(Dataset):
+    def __init__(self, emissions, context, seq_len=128):
+        self.emissions = emissions
+        self.context = context
+        self.seq_len = seq_len
+
+    def __len__(self):
+        return len(self.emissions) - self.seq_len
+
+    def __getitem__(self, idx):
+        x = self.emissions[idx:idx+self.seq_len]
+        c = self.context[idx:idx+self.seq_len]
+        return torch.tensor(x, dtype=torch.float32), torch.tensor(c, dtype=torch.float32)
+
+context_features = np.stack([temperature, production_load], axis=1)
+dataset = EmissionsDataset(emissions, context_features, seq_len=128)
+dataloader = DataLoader(dataset, batch_size=16, shuffle=True)
+
+# Diffusion Utilities
+def add_noise(x, t):
+    """Add Gaussian noise according to timestep t"""
+    noise = torch.randn_like(x)
+    alpha = 1 - 0.02 * t
+    return alpha * x + (1 - alpha) * noise
+
+# EcoFusion Model (Conditional Diffusion Transformer)
+class EcoFusionModel(nn.Module):
+    def __init__(self, input_dim=1, context_dim=2, hidden_dim=64, num_layers=2):
+        super().__init__()
+        self.embedding = nn.Linear(context_dim, hidden_dim)
+        self.input_proj = nn.Linear(input_dim, hidden_dim)
+        self.transformer = nn.Transformer(
+            d_model=hidden_dim, num_encoder_layers=num_layers,
+            num_decoder_layers=num_layers, batch_first=True, nhead=4
+        )
+        self.output = nn.Linear(hidden_dim, input_dim)
+
+    def forward(self, x_noisy, context):
+        cond_embed = self.embedding(context)
+        x_embed = self.input_proj(x_noisy.unsqueeze(-1))
+        combined = x_embed + cond_embed
+        out = self.transformer(combined, combined)
+        return self.output(out).squeeze(-1)
+
+# Training Loop
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model = EcoFusionModel().to(device)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+criterion = nn.MSELoss()
+
+epochs = 10
+for epoch in range(epochs):
+    epoch_loss = 0
+    for x, c in tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}"):
+        x, c = x.to(device), c.to(device)
+        t = torch.rand(1).item()
+        noisy_x = add_noise(x, t)
+        pred = model(noisy_x, c)
+        loss = criterion(pred, x)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        epoch_loss += loss.item()
+    print(f"Epoch {epoch+1} Loss: {epoch_loss/len(dataloader):.4f}")
+
+# Synthetic Data Generation
+def generate_synthetic_sequence(model, context, seq_len=128):
+    model.eval()
+    with torch.no_grad():
+        noisy = torch.randn((1, seq_len)).to(device)
+        context = torch.tensor(context, dtype=torch.float32).unsqueeze(0).to(device)
+        for step in range(30):
+            pred = model(noisy, context)
+            noisy = 0.9 * noisy + 0.1 * pred
+        return pred.cpu().numpy().flatten()
+
+sample_context = np.stack([
+    np.linspace(24, 32, 128),  # temperature
+    np.linspace(65, 85, 128)   # production load
+], axis=1)
+
+synthetic_emissions = generate_synthetic_sequence(model, sample_context)
+
+plt.figure(figsize=(10,4))
+plt.plot(synthetic_emissions, label='Generated Emissions')
+plt.title("EcoFusion: Synthetic GHG Emission Time Series")
+plt.legend(); plt.show()
+
+# Evaluation Metrics
+real_sample = emissions[:128]
+mae = np.mean(np.abs(real_sample - synthetic_emissions[:128]))
+corr = np.corrcoef(real_sample, synthetic_emissions[:128])[0,1]
+print(f"MAE: {mae:.4f} | Correlation: {corr:.4f}")
+
+# Save Results
+np.save("ecofusion_synthetic_emissions.npy", synthetic_emissions)
+torch.save(model.state_dict(), "ecofusion_model.pt")
+
+print("Synthetic emissions sequence and model checkpoint saved successfully.")
